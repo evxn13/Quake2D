@@ -1,4 +1,4 @@
-# 2dQUAKE
+# Quake2D
 
 Jouer à **Quake** en **vue du dessus**, façon *GTA 1/2*, avec son vrai moteur 3D :
 la caméra du jeu est placée au-dessus du joueur et regarde vers le bas, en
@@ -64,8 +64,8 @@ dessus. Ces mesures restent à confirmer sur de vraies petites cartes graphiques
 ## Installation
 
 ```sh
-git clone https://github.com/evxn13/2dQUAKE.git
-cd 2dQUAKE
+git clone https://github.com/evxn13/Quake2D.git
+cd Quake2D
 ./install.sh          # ou ./install.sh --deps pour installer les dépendances
 ```
 

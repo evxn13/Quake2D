@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installe 2dQUAKE : compile QuakeSpasm 0.96.3 et le mod, et récupère les
+# Installe Quake2D : compile QuakeSpasm 0.96.3 et le mod, et récupère les
 # données du jeu (LibreQuake, libre et gratuit, ou votre copie de Quake).
 #
 # Usage : ./install.sh [--deps] [--data DOSSIER]
