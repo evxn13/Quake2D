@@ -13,8 +13,11 @@
 //! - `Chase_UpdateForDrawing` : neutralisée, pour activer la caméra de
 //!   poursuite (qui fait dessiner le modèle du joueur) sans déplacer la caméra.
 //!
+//! Les adresses viennent des symboles de l'exécutable, ou à défaut du profil
+//! trouvé avec REA sur le binaire strippé (voir `profile.rs`).
+//!
 //! Variables d'environnement :
-//! - `QUAKE2D_VIEW`       largeur de la vue en unités de carte (défaut 1000)
+//! - `QUAKE2D_VIEW`       largeur de la vue en unités de carte (défaut 600)
 //! - `QUAKE2D_CLIP`       hauteur de coupe au-dessus des yeux (défaut 40)
 //! - `QUAKE2D_MOUSE_SENS` pixels de viseur par pixel de souris (défaut 1)
 //! - `QUAKE2D_DEBUG`      afficher les commandes envoyées au jeu
@@ -24,43 +27,15 @@
 mod gl;
 mod input;
 mod module;
+mod profile;
 mod symbols;
 
 use core::ffi::c_char;
-use std::collections::HashMap;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use module::{JumpHook, MainModule};
-
-macro_rules! addresses {
-    ($( $field:ident = $symbol:literal; )*) => {
-        struct Addresses { $( $field: usize, )* }
-
-        impl Addresses {
-            fn from_symbols(base: usize, symbols: &HashMap<String, u64>) -> Option<Addresses> {
-                Some(Addresses { $( $field: base + *symbols.get($symbol)? as usize, )* })
-            }
-        }
-    };
-}
-
-addresses! {
-    r_set_frustum = "R_SetFrustum";
-    gl_set_frustum = "GL_SetFrustum";
-    cl_base_move = "CL_BaseMove";
-    v_render_view = "V_RenderView";
-    chase_update = "Chase_UpdateForDrawing";
-    angle_vectors = "AngleVectors";
-    cbuf_add_text = "Cbuf_AddText";
-    r_refdef = "r_refdef";
-    r_origin = "r_origin";
-    vpn = "vpn";
-    vright = "vright";
-    vup = "vup";
-    frustum = "frustum";
-    cl = "cl";
-}
+use profile::Addresses;
 
 /// `refdef_t` (partiel).
 #[repr(C)]
@@ -97,6 +72,7 @@ const PLANE_ANYZ: u8 = 5;
 const TOP_DOWN: [f32; 3] = [90.0, 90.0, 0.0];
 
 const _: () = {
+    assert!(core::mem::offset_of!(Cvar, value) == 20);
     assert!(core::mem::offset_of!(Refdef, vieworg) == 120);
     assert!(core::mem::offset_of!(Refdef, viewangles) == 132);
     assert!(size_of::<Plane>() == 20);
@@ -121,7 +97,6 @@ type AngleVectorsFn = unsafe extern "C" fn(*const f32, *mut f32, *mut f32, *mut 
 type CbufAddText = unsafe extern "C" fn(*const c_char);
 
 static STATE: OnceLock<State> = OnceLock::new();
-static CONFIGURED: AtomicBool = AtomicBool::new(false);
 static FRAME: AtomicU64 = AtomicU64::new(0);
 
 #[used]
@@ -130,13 +105,13 @@ static INIT: extern "C" fn() = init;
 
 extern "C" fn init() {
     let Some(module) = MainModule::find() else { return };
-    // Pas QuakeSpasm (ou binaire strippé) : on ne touche à rien.
-    let Some(addr) = Addresses::from_symbols(module.base, &symbols::load_own()) else { return };
+    // Pas QuakeSpasm (ou version inconnue) : on ne touche à rien.
+    let Some((addr, source)) = Addresses::resolve(&module) else { return };
     let env = |k: &str, d: f32| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
     input::set_sensitivity(env("QUAKE2D_MOUSE_SENS", 1.0));
     let var = |k: &str| std::env::var(k).ok();
     let settings = Settings {
-        view_units: env("QUAKE2D_VIEW", 1000.0),
+        view_units: env("QUAKE2D_VIEW", 600.0),
         clip_above: env("QUAKE2D_CLIP", 40.0),
         shots: var("QUAKE2D_SHOTS").map(|v| v.split(',').filter_map(|n| n.trim().parse().ok()).collect()).unwrap_or_default(),
         quit_after: var("QUAKE2D_QUIT_AFTER").and_then(|v| v.parse().ok()),
@@ -155,7 +130,7 @@ extern "C" fn init() {
     match hooks {
         Ok(render_view) => {
             let _ = STATE.set(State { addr, settings, render_view });
-            eprintln!("[quake2d] vue du dessus activée");
+            eprintln!("[quake2d] vue du dessus activée (adresses : {source})");
         }
         Err(e) => eprintln!("[quake2d] échec d'un détour : {e}"),
     }
@@ -172,12 +147,32 @@ fn view_extent(st: &State) -> (f32, f32) {
     (st.settings.view_units, st.settings.view_units * h / w)
 }
 
-/// Réglages du jeu adaptés à la vue du dessus : modèle du joueur visible
-/// (caméra de poursuite), pas d'arme devant la caméra, visée verticale
-/// automatique (on ne peut plus viser en hauteur), et souris neutralisée pour
-/// le jeu (le viseur la lit directement dans SDL).
-fn configure_game(st: &State) {
-    console(st, c"chase_active 1; r_drawviewmodel 0; crosshair 0; sv_aim 0.93; sensitivity 0\n");
+/// `cvar_t` (partiel) : seule la valeur numérique nous intéresse.
+#[repr(C)]
+struct Cvar {
+    name: *const c_char,
+    string: *const c_char,
+    flags: u32,
+    value: f32,
+}
+
+/// Réglages du jeu adaptés à la vue du dessus, appliqués à chaque image :
+/// modèle du joueur visible (caméra de poursuite), pas d'arme devant la caméra
+/// ni de viseur central, souris neutralisée pour le jeu (notre viseur la lit
+/// dans SDL), visée verticale automatique (on ne peut plus viser en hauteur).
+///
+/// On écrit seulement la valeur numérique : le texte, que le jeu enregistre
+/// dans config.cfg, reste celui du joueur.
+fn apply_cvars(a: &Addresses) {
+    for (cvar, value) in [
+        (a.chase_active, 1.0),
+        (a.r_drawviewmodel, 0.0),
+        (a.crosshair, 0.0),
+        (a.sensitivity, 0.0),
+        (a.sv_aim, 0.93),
+    ] {
+        unsafe { var::<Cvar>(cvar).value = value };
+    }
 }
 
 /// Remplace `Chase_UpdateForDrawing` : la caméra reste aux yeux du joueur.
@@ -195,10 +190,8 @@ fn console(st: &State, cmd: &core::ffi::CStr) {
 /// visibilité (PVS) depuis les yeux du joueur et avant la caméra OpenGL.
 extern "C" fn set_cull_frustum(_fovx: f32, _fovy: f32) {
     let Some(st) = STATE.get() else { return };
-    if !CONFIGURED.swap(true, Ordering::Relaxed) {
-        configure_game(st);
-    }
     let a = &st.addr;
+    apply_cvars(a);
     // Caméra vers le bas : R_SetupGL lira ces angles. Le jeu les recalcule à
     // chaque image, rien à restaurer. Le son, spatialisé avec vpn/vright/vup,
     // suit alors l'écran (un bruit à l'est sort à droite).

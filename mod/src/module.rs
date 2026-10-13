@@ -35,6 +35,13 @@ impl MainModule {
     pub fn is_code(&self, addr: usize, len: usize) -> bool {
         self.exec_ranges.iter().any(|&(s, e)| addr >= s && addr + len <= e)
     }
+
+    /// Vérifie que `expected` se trouve à `addr`, sans lire hors du code exécutable :
+    /// sous `LD_PRELOAD`, on est aussi chargé dans d'autres programmes.
+    pub fn code_matches(&self, addr: usize, expected: &[u8]) -> bool {
+        self.is_code(addr, expected.len())
+            && unsafe { core::slice::from_raw_parts(addr as *const u8, expected.len()) } == expected
+    }
 }
 
 const PATCH_LEN: usize = 12;
