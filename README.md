@@ -6,7 +6,9 @@ perspective (on voit la face des murs vers les bords de l'écran), les plafonds 
 coupés, et les contrôles deviennent ceux d'un jeu de tir vu du dessus (clavier pour
 se déplacer, souris pour viser).
 
-![LibreQuake, E1M1](docs/e1m1.png)
+| Combat | Face à un ennemi | Perspective des murs |
+|---|---|---|
+| ![Combat](docs/combat.png) | ![Rats Behind Bars](docs/rats-behind-bars.png) | ![LibreQuake, E1M1](docs/e1m1.png) |
 
 Le mod est une bibliothèque Rust injectée dans
 [QuakeSpasm](https://github.com/sezero/quakespasm) au lancement. Le jeu n'est pas
