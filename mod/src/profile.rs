@@ -62,6 +62,9 @@ addresses! {
     crosshair = "crosshair" @ 0xb5600;
     sensitivity = "sensitivity" @ 0xb4140;
     sv_aim = "sv_aim" @ 0xb6120;
+    r_wateralpha = "r_wateralpha" @ 0xb1fe0;
+    r_slimealpha = "r_slimealpha" @ 0xb17a0;
+    r_lavaalpha = "r_lavaalpha" @ 0xb1820;
 }
 
 /// Début de R_SetFrustum dans le binaire de référence (indépendant de l'ASLR).

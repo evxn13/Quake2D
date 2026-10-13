@@ -3,7 +3,8 @@
 
 use core::ffi::{c_int, c_void};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 // Scancodes SDL (positions physiques : WASD en QWERTY = ZQSD en AZERTY).
 const SC_A: usize = 4;
@@ -32,6 +33,20 @@ static HALF_W: AtomicI32 = AtomicI32::new(320);
 static HALF_H: AtomicI32 = AtomicI32::new(200);
 /// Sensibilité en 1/256 de pixel de vue par pixel de souris.
 static SENS: AtomicI32 = AtomicI32::new(256);
+/// Dernier mouvement de souris, en millisecondes depuis `epoch()`.
+static LAST_MOUSE_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Sans souris depuis ce délai, le joueur regarde là où il marche.
+const MOUSE_IDLE: Duration = Duration::from_millis(750);
+
+fn epoch() -> Instant {
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    *EPOCH.get_or_init(Instant::now)
+}
+
+fn now_ms() -> u64 {
+    epoch().elapsed().as_millis() as u64
+}
 
 unsafe fn sym<T>(name: &core::ffi::CStr) -> Option<T> {
     let p = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
@@ -55,6 +70,7 @@ unsafe extern "C" fn on_event(_user: *mut c_void, event: *mut c_void) -> c_int {
         let (xrel, yrel) = unsafe { (*(ev.add(28) as *const i32), *(ev.add(32) as *const i32)) };
         let s = SENS.load(Ordering::Relaxed);
         move_cursor(xrel * s, yrel * s);
+        LAST_MOUSE_MS.store(now_ms(), Ordering::Relaxed);
     }
     1
 }
@@ -79,6 +95,24 @@ pub fn set_view_size(w: i32, h: i32) {
 /// Viseur en pixels, relatif au centre de la vue (y vers le bas).
 pub fn cursor() -> (f32, f32) {
     (CURSOR_X.load(Ordering::Relaxed) as f32 / 256.0, CURSOR_Y.load(Ordering::Relaxed) as f32 / 256.0)
+}
+
+/// Si la souris est inactive et que le joueur marche, place le viseur dans la
+/// direction de la marche (à la même distance) : le joueur s'y tourne, et la
+/// souris reprendra de là.
+pub fn follow_movement(m: Movement) {
+    let len = (m.x * m.x + m.y * m.y).sqrt();
+    let idle = now_ms().saturating_sub(LAST_MOUSE_MS.load(Ordering::Relaxed));
+    if len == 0.0 || idle < MOUSE_IDLE.as_millis() as u64 {
+        return;
+    }
+    let (cx, cy) = cursor();
+    let radius = (cx * cx + cy * cy).sqrt().max(64.0);
+    // Écran : y vers le bas, donc « haut » (m.y > 0) = y négatif.
+    let (x, y) = (m.x / len * radius, -m.y / len * radius);
+    CURSOR_X.store((x * 256.0) as i32, Ordering::Relaxed);
+    CURSOR_Y.store((y * 256.0) as i32, Ordering::Relaxed);
+    move_cursor(0, 0); // re-borner à la vue
 }
 
 /// Direction voulue en coordonnées écran (x à droite, y vers le haut) et marche.

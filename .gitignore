@@ -1,6 +1,7 @@
 /target
-/engines
-/data
+/build
 /bin
+/data
 /captures
 /history.txt
+/quake2d.conf

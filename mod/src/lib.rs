@@ -20,6 +20,7 @@
 //! - `QUAKE2D_VIEW`       largeur de la vue en unités de carte (défaut 600)
 //! - `QUAKE2D_CLIP`       hauteur de coupe au-dessus des yeux (défaut 40)
 //! - `QUAKE2D_MOUSE_SENS` pixels de viseur par pixel de souris (défaut 1)
+//! - `QUAKE2D_LIQUID_ALPHA` opacité de l'eau, de la boue et de la lave (défaut 0.5)
 //! - `QUAKE2D_DEBUG`      afficher les commandes envoyées au jeu
 //! - `QUAKE2D_SHOTS`      numéros d'images où prendre une capture, ex. "100,300"
 //! - `QUAKE2D_QUIT_AFTER` quitter le jeu après N images (tests)
@@ -81,6 +82,7 @@ const _: () = {
 
 struct Settings {
     view_units: f32,
+    liquid_alpha: f32,
     clip_above: f32,
     shots: Vec<u64>,
     quit_after: Option<u64>,
@@ -112,6 +114,7 @@ extern "C" fn init() {
     let var = |k: &str| std::env::var(k).ok();
     let settings = Settings {
         view_units: env("QUAKE2D_VIEW", 600.0),
+        liquid_alpha: env("QUAKE2D_LIQUID_ALPHA", 0.5),
         clip_above: env("QUAKE2D_CLIP", 40.0),
         shots: var("QUAKE2D_SHOTS").map(|v| v.split(',').filter_map(|n| n.trim().parse().ok()).collect()).unwrap_or_default(),
         quit_after: var("QUAKE2D_QUIT_AFTER").and_then(|v| v.parse().ok()),
@@ -159,12 +162,16 @@ struct Cvar {
 /// Réglages du jeu adaptés à la vue du dessus, appliqués à chaque image :
 /// modèle du joueur visible (caméra de poursuite), pas d'arme devant la caméra
 /// ni de viseur central, souris neutralisée pour le jeu (notre viseur la lit
-/// dans SDL), visée verticale automatique (on ne peut plus viser en hauteur).
+/// dans SDL), visée verticale automatique (on ne peut plus viser en hauteur),
+/// liquides translucides (vu du dessus, ils cachent ce qui est dedans).
 ///
 /// On écrit seulement la valeur numérique : le texte, que le jeu enregistre
 /// dans config.cfg, reste celui du joueur.
-fn apply_cvars(a: &Addresses) {
+fn apply_cvars(a: &Addresses, liquid_alpha: f32) {
     for (cvar, value) in [
+        (a.r_wateralpha, liquid_alpha),
+        (a.r_slimealpha, liquid_alpha),
+        (a.r_lavaalpha, liquid_alpha),
         (a.chase_active, 1.0),
         (a.r_drawviewmodel, 0.0),
         (a.crosshair, 0.0),
@@ -191,7 +198,7 @@ fn console(st: &State, cmd: &core::ffi::CStr) {
 extern "C" fn set_cull_frustum(_fovx: f32, _fovy: f32) {
     let Some(st) = STATE.get() else { return };
     let a = &st.addr;
-    apply_cvars(a);
+    apply_cvars(a, st.settings.liquid_alpha);
     // Caméra vers le bas : R_SetupGL lira ces angles. Le jeu les recalcule à
     // chaque image, rien à restaurer. Le son, spatialisé avec vpn/vright/vup,
     // suit alors l'écran (un bruit à l'est sort à droite).
@@ -231,6 +238,7 @@ extern "C" fn base_move(cmd: *mut UserCmd) {
     let cmd = unsafe { &mut *cmd };
     *cmd = UserCmd { viewangles: [0.0; 3], forwardmove: 0.0, sidemove: 0.0, upmove: 0.0 };
     let Some(m) = input::read_movement() else { return };
+    input::follow_movement(m);
     let yaw = input::aim_yaw(input::cursor());
     // CL_SendMove envoie cl.viewangles au serveur.
     unsafe { *var::<[f32; 3]>(st.addr.cl + CL_VIEWANGLES) = [0.0, yaw, 0.0] };
