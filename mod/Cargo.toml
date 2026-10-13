@@ -1,0 +1,11 @@
+[package]
+name = "quake2d-mod"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "quake2d"
+crate-type = ["cdylib"]
+
+[dependencies]
+libc = "0.2"

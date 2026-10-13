@@ -1,0 +1,18 @@
+# Référence QuakeSpasm 0.96.3 + LibreQuake v0.09-beta, sans mod
+# Xvfb + Mesa llvmpipe (rendu OpenGL par le CPU), -nosound, 2026-10-13
+640 400x demo1 : 2917 frames 225.5 seconds  12.9 fps
+640 400x demo2 : 2278 frames  77.6 seconds  29.3 fps
+640 400x demo3 : 1232 frames  78.4 seconds  15.7 fps
+1280 800x demo1 : 2917 frames 255.0 seconds  11.4 fps
+1280 800x demo2 : 2278 frames  77.2 seconds  29.5 fps
+1280 800x demo3 : 1232 frames  81.8 seconds  15.1 fps
+
+[exited with code 0]
+
+# Avec quake2d (caméra du dessus, vue 1000 unités, élimination par rectangle), même machine
+mod 640x400 demo1 : 2917 frames  39.2 seconds  74.4 fps
+mod 640x400 demo2 : 2278 frames  19.8 seconds 115.2 fps
+mod 640x400 demo3 : 1232 frames  19.4 seconds  63.4 fps
+mod 1280x800 demo1 : 2917 frames 111.6 seconds  26.1 fps
+mod 1280x800 demo2 : 2278 frames  53.8 seconds  42.4 fps
+mod 1280x800 demo3 : 1232 frames  42.1 seconds  29.2 fps
