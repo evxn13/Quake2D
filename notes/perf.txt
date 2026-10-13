@@ -16,3 +16,9 @@ mod 640x400 demo3 : 1232 frames  19.4 seconds  63.4 fps
 mod 1280x800 demo1 : 2917 frames 111.6 seconds  26.1 fps
 mod 1280x800 demo2 : 2278 frames  53.8 seconds  42.4 fps
 mod 1280x800 demo3 : 1232 frames  42.1 seconds  29.2 fps
+
+# Perspective (caméra 250 au-dessus des yeux, vue 600 unités)
+mod 1280x800 demo1 : 2917 frames 111.1 seconds  26.3 fps
+mod 1280x800 demo2 : 2278 frames  52.5 seconds  43.4 fps
+mod 1280x800 demo3 : 1232 frames  41.9 seconds  29.4 fps
+mod 640x400 demo1 : 76.7 fps / demo2 : 127.9 fps / demo3 : 76.9 fps

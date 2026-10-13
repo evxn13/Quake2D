@@ -2,11 +2,12 @@
 //!
 //! Chargé via `LD_PRELOAD`. On garde le moteur de rendu du jeu et on ne
 //! change que sa caméra, en remplaçant quelques fonctions :
-//! - `R_SetFrustum` : la caméra regarde vers le bas (nord en haut de l'écran)
-//!   et les plans d'élimination deviennent les bords du rectangle visible —
-//!   le moteur ne traite plus que ce qui est à l'écran ;
-//! - `GL_SetFrustum` : projection orthographique, coupée juste au-dessus de la
-//!   tête du joueur (plafonds et étages supérieurs disparaissent) ;
+//! - `R_SetFrustum` : la caméra monte au-dessus du joueur et regarde vers le bas
+//!   (nord en haut de l'écran), et les plans d'élimination deviennent les bords
+//!   du rectangle visible — le moteur ne traite plus que ce qui est à l'écran ;
+//! - `GL_SetFrustum` : perspective façon GTA (on voit la face des murs vers les
+//!   bords), dont le plan proche, horizontal, coupe tout au-dessus de la tête
+//!   du joueur (plafonds et étages supérieurs disparaissent) ;
 //! - `CL_BaseMove` : déplacement au clavier relatif à l'écran, regard vers le
 //!   viseur de la souris ;
 //! - `V_RenderView` : encadrée pour dessiner le viseur après la vue 3D ;
@@ -18,6 +19,8 @@
 //!
 //! Variables d'environnement :
 //! - `QUAKE2D_VIEW`       largeur de la vue en unités de carte (défaut 600)
+//! - `QUAKE2D_HEIGHT`     hauteur de la caméra au-dessus des yeux (défaut 250 ;
+//!   plus bas = perspective plus marquée ; 0 = vue sans perspective)
 //! - `QUAKE2D_CLIP`       hauteur de coupe au-dessus des yeux (défaut 40)
 //! - `QUAKE2D_MOUSE_SENS` pixels de viseur par pixel de souris (défaut 1)
 //! - `QUAKE2D_LIQUID_ALPHA` opacité de l'eau, de la boue et de la lave (défaut 0.5)
@@ -82,6 +85,7 @@ const _: () = {
 
 struct Settings {
     view_units: f32,
+    camera_height: f32,
     liquid_alpha: f32,
     clip_above: f32,
     shots: Vec<u64>,
@@ -100,6 +104,8 @@ type CbufAddText = unsafe extern "C" fn(*const c_char);
 
 static STATE: OnceLock<State> = OnceLock::new();
 static FRAME: AtomicU64 = AtomicU64::new(0);
+/// Position des yeux du joueur pendant l'image en cours (caméra avant élévation).
+static EYE: std::sync::Mutex<[f32; 3]> = std::sync::Mutex::new([0.0; 3]);
 
 #[used]
 #[unsafe(link_section = ".init_array")]
@@ -114,6 +120,7 @@ extern "C" fn init() {
     let var = |k: &str| std::env::var(k).ok();
     let settings = Settings {
         view_units: env("QUAKE2D_VIEW", 600.0),
+        camera_height: env("QUAKE2D_HEIGHT", 250.0).max(0.0),
         liquid_alpha: env("QUAKE2D_LIQUID_ALPHA", 0.5),
         clip_above: env("QUAKE2D_CLIP", 40.0),
         shots: var("QUAKE2D_SHOTS").map(|v| v.split(',').filter_map(|n| n.trim().parse().ok()).collect()).unwrap_or_default(),
@@ -208,11 +215,23 @@ extern "C" fn set_cull_frustum(_fovx: f32, _fovy: f32) {
         angle_vectors(TOP_DOWN.as_ptr(), a.vpn as *mut f32, a.vright as *mut f32, a.vup as *mut f32);
     }
 
-    // Élimination : les 4 bords du rectangle visible (plus une marge).
-    let (w, h) = view_extent(st);
+    // Les zones invisibles en noir plutôt qu'en gris (R_Clear suit).
+    gl::clear_color(0.0, 0.0, 0.0);
+
+    // Caméra au-dessus des yeux. La visibilité (PVS) a déjà été calculée depuis
+    // les yeux ; r_origin sert ensuite à savoir quelles faces regardent la caméra.
+    let refdef = unsafe { var::<Refdef>(a.r_refdef) };
     let origin = unsafe { var::<[f32; 3]>(a.r_origin) };
+    *EYE.lock().unwrap_or_else(|e| e.into_inner()) = *origin;
+    refdef.vieworg[2] += st.settings.camera_height;
+    origin[2] += st.settings.camera_height;
+
+    // Élimination : les 4 bords du rectangle visible au niveau des yeux (le plus
+    // grand en perspective pour ce qui est au-dessus), plus une marge pour ce qui
+    // est en contrebas et apparaît donc un peu plus loin du centre.
+    let (w, h) = view_extent(st);
     let planes = unsafe { var::<[Plane; 4]>(a.frustum) };
-    let (hw, hh) = (w / 2.0 + 32.0, h / 2.0 + 32.0);
+    let (hw, hh) = (w * 0.6 + 32.0, h * 0.6 + 32.0);
     let (x, y) = (origin[0], origin[1]);
     let defs = [([1.0, 0.0, 0.0], x - hw), ([-1.0, 0.0, 0.0], -(x + hw)), ([0.0, 1.0, 0.0], y - hh), ([0.0, -1.0, 0.0], -(y + hh))];
     for (plane, (normal, dist)) in planes.iter_mut().zip(defs) {
@@ -223,13 +242,23 @@ extern "C" fn set_cull_frustum(_fovx: f32, _fovy: f32) {
     }
 }
 
-/// Remplace `GL_SetFrustum` : projection orthographique coupée au-dessus des yeux.
+/// Remplace `GL_SetFrustum`.
 extern "C" fn set_gl_frustum(_fovx: f32, _fovy: f32) {
     let Some(st) = STATE.get() else { return };
     let (w, h) = view_extent(st);
-    // La caméra est aux yeux du joueur et regarde vers le bas : un « near »
-    // négatif garde ce qui est jusqu'à `clip_above` au-dessus d'elle.
-    gl::ortho(-w / 2.0, w / 2.0, -h / 2.0, h / 2.0, -st.settings.clip_above, 8192.0);
+    let (height, clip) = (st.settings.camera_height, st.settings.clip_above);
+    if height <= clip + 1.0 {
+        // Sans perspective, caméra aux yeux : un « near » négatif garde ce qui
+        // est jusqu'à `clip` au-dessus d'elle.
+        gl::ortho(-w / 2.0, w / 2.0, -h / 2.0, h / 2.0, -(clip - height), 8192.0);
+        return;
+    }
+    // La caméra regarde droit vers le bas : le plan proche est horizontal. Placé
+    // à `clip` au-dessus des yeux, il coupe plafonds et étages supérieurs.
+    // Au niveau des yeux (à `height` sous la caméra), la vue fait `w` de large.
+    let near = height - clip;
+    let k = near / height;
+    gl::frustum(-w / 2.0 * k, w / 2.0 * k, -h / 2.0 * k, h / 2.0 * k, near, height + 8192.0);
 }
 
 /// Remplace `CL_BaseMove` : déplacement relatif à l'écran, regard vers le viseur.
@@ -258,10 +287,12 @@ extern "C" fn render_view() {
             f();
         });
     }
+    // Le son est spatialisé depuis r_origin : on le ramène aux yeux du joueur.
+    unsafe { *var::<[f32; 3]>(st.addr.r_origin) = *EYE.lock().unwrap_or_else(|e| e.into_inner()) };
     let refdef = unsafe { var::<Refdef>(st.addr.r_refdef) };
     let (w, h) = (refdef.vrect[2], refdef.vrect[3]);
     input::set_view_size(w, h);
-    gl::draw_crosshair(w, h, input::cursor());
+    gl::draw_crosshair(w, h, input::cursor(), input::crosshair_alpha());
 
     let n = FRAME.fetch_add(1, Ordering::Relaxed);
     if st.settings.shots.contains(&n) {

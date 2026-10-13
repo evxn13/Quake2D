@@ -1,9 +1,10 @@
 # 2dQUAKE
 
 Jouer à **Quake** en **vue du dessus**, façon *GTA 1/2*, avec son vrai moteur 3D :
-la caméra du jeu est placée au-dessus du joueur et regarde vers le bas, les
-plafonds sont coupés, et les contrôles deviennent ceux d'un jeu de tir vu du dessus
-(clavier pour se déplacer, souris pour viser).
+la caméra du jeu est placée au-dessus du joueur et regarde vers le bas, en
+perspective (on voit la face des murs vers les bords de l'écran), les plafonds sont
+coupés, et les contrôles deviennent ceux d'un jeu de tir vu du dessus (clavier pour
+se déplacer, souris pour viser).
 
 ![LibreQuake, E1M1](docs/e1m1.png)
 
@@ -26,8 +27,8 @@ avec OpenGL calculé par le processeur (Mesa llvmpipe, sans carte graphique) :
 
 | Résolution | Sans le mod | Avec le mod | Gain |
 |---|---|---|---|
-| 640×400 | 13 à 29 images/s | 63 à 115 images/s | **×3,9 à ×5,8** |
-| 1280×800 | 11 à 30 images/s | 26 à 42 images/s | ×1,4 à ×2,3 |
+| 640×400 | 13 à 29 images/s | 77 à 128 images/s | **×4,4 à ×5,9** |
+| 1280×800 | 11 à 30 images/s | 26 à 43 images/s | ×1,5 à ×2,3 |
 
 Sans le mod, la résolution ne change presque rien : c'est le nombre de surfaces à
 traiter qui limite. Avec le mod, ce coût s'effondre et c'est le nombre de pixels
@@ -38,11 +39,14 @@ dessus. Ces mesures restent à confirmer sur de vraies petites cartes graphiques
 
 - **Vrai rendu 3D vu du dessus** : modèles 3D des monstres et du joueur, éclairage
   et effets d'origine.
+- **Perspective façon GTA** : plus un mur est loin du centre de l'écran, plus on
+  voit sa face, avec sa vraie texture.
 - **Plafonds coupés** juste au-dessus de la tête du joueur.
 - **Brouillard de guerre** : les zones invisibles depuis le joueur ne sont pas
   dessinées (grâce aux données de visibilité précalculées de Quake).
 - **Contrôles « twin-stick »** : déplacement relatif à l'écran, visée à la souris.
-  Si vous ne touchez pas la souris, le personnage regarde là où il marche.
+  Si vous ne touchez pas la souris, le personnage regarde là où il marche et le
+  viseur s'estompe.
 - **Liquides translucides** : on voit ce qui se trouve dans l'eau, la boue ou la lave.
 - **Visée verticale automatique** : on ne peut plus viser en hauteur, le jeu s'en
   charge.
@@ -110,6 +114,7 @@ Par variables d'environnement, par exemple `QUAKE2D_VIEW=400 ./run.sh` :
 | Variable | Effet | Défaut |
 |---|---|---|
 | `QUAKE2D_VIEW` | largeur de la vue en unités de carte (plus petit = plus proche) | `600` |
+| `QUAKE2D_HEIGHT` | hauteur de la caméra au-dessus des yeux (plus bas = perspective plus marquée, `0` = sans perspective) | `250` |
 | `QUAKE2D_CLIP` | hauteur de coupe au-dessus des yeux, en unités | `40` |
 | `QUAKE2D_MOUSE_SENS` | sensibilité du viseur | `1` |
 | `QUAKE2D_LIQUID_ALPHA` | opacité de l'eau, de la boue et de la lave (0 à 1) | `0.5` |
@@ -146,8 +151,8 @@ nôtres.
 
 | Fonction du jeu | Ce que fait le mod |
 |---|---|
-| `R_SetFrustum` | tourne la caméra vers le bas, et remplace les 4 plans d'élimination par les bords du rectangle visible — le moteur ne traite plus que ce qui est à l'écran |
-| `GL_SetFrustum` | projection orthographique au lieu de la perspective, coupée au-dessus des yeux |
+| `R_SetFrustum` | monte la caméra au-dessus du joueur et la tourne vers le bas, et remplace les 4 plans d'élimination par les bords du rectangle visible — le moteur ne traite plus que ce qui est à l'écran |
+| `GL_SetFrustum` | perspective vue d'en haut : la caméra regardant droit vers le bas, son plan de coupe proche est horizontal, et placé juste au-dessus des yeux il supprime plafonds et étages supérieurs |
 | `CL_BaseMove` | fabrique la commande du joueur à partir du clavier et du viseur |
 | `V_RenderView` | encadrée (on restaure ses octets le temps de l'appel) pour dessiner le viseur |
 | `Chase_UpdateForDrawing` | neutralisée : la caméra de poursuite fait dessiner le joueur, sans déplacer la caméra |

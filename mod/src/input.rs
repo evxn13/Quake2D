@@ -97,13 +97,25 @@ pub fn cursor() -> (f32, f32) {
     (CURSOR_X.load(Ordering::Relaxed) as f32 / 256.0, CURSOR_Y.load(Ordering::Relaxed) as f32 / 256.0)
 }
 
+/// Temps écoulé depuis le dernier mouvement de souris.
+pub fn mouse_idle() -> Duration {
+    Duration::from_millis(now_ms().saturating_sub(LAST_MOUSE_MS.load(Ordering::Relaxed)))
+}
+
+/// Opacité du viseur : plein quand la souris sert, estompé sinon.
+pub fn crosshair_alpha() -> f32 {
+    const FADE: f32 = 0.5; // secondes
+    const MIN: f32 = 0.3;
+    let t = (mouse_idle().as_secs_f32() - MOUSE_IDLE.as_secs_f32()) / FADE;
+    1.0 - (1.0 - MIN) * t.clamp(0.0, 1.0)
+}
+
 /// Si la souris est inactive et que le joueur marche, place le viseur dans la
 /// direction de la marche (à la même distance) : le joueur s'y tourne, et la
 /// souris reprendra de là.
 pub fn follow_movement(m: Movement) {
     let len = (m.x * m.x + m.y * m.y).sqrt();
-    let idle = now_ms().saturating_sub(LAST_MOUSE_MS.load(Ordering::Relaxed));
-    if len == 0.0 || idle < MOUSE_IDLE.as_millis() as u64 {
+    if len == 0.0 || mouse_idle() < MOUSE_IDLE {
         return;
     }
     let (cx, cy) = cursor();
